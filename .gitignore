@@ -1,0 +1,32 @@
+# 환경 변수
+.env
+client_secret.json
+
+# 데이터베이스
+*.db
+*.sqlite
+*.sqlite3
+
+# 로그
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+*.class
+*.so
+.Python
+venv/
+env/
+ENV/
+
+# 임시 파일
+*.mp3
+*.webm
+*.m4a
+*.opus
+
+# IDE
+.vscode/
+.idea/
+*.swp

@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>레시피 추천</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 30px;
+            font-size: 2.5em;
+        }
+        
+        .search-box {
+            background: #f8f9fa;
+            padding: 30px;
+            border-radius: 15px;
+            margin-bottom: 30px;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 10px;
+            color: #555;
+            font-weight: bold;
+        }
+        
+        input[type="text"] {
+            width: 100%;
+            padding: 15px;
+            border: 2px solid #ddd;
+            border-radius: 10px;
+            font-size: 16px;
+            transition: border-color 0.3s;
+        }
+        
+        input[type="text"]:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        .hint {
+            color: #888;
+            font-size: 14px;
+            margin-top: 8px;
+        }
+        
+        button {
+            width: 100%;
+            padding: 15px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 18px;
+            font-weight: bold;
+            cursor: pointer;
+            margin-top: 20px;
+            transition: transform 0.2s;
+        }
+        
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+        
+        .message {
+            background: #fff3cd;
+            border: 1px solid #ffc107;
+            color: #856404;
+            padding: 15px;
+            border-radius: 10px;
+            margin: 20px 0;
+            text-align: center;
+        }
+        
+        .recipe-card {
+            background: white;
+            border: 2px solid #e0e0e0;
+            border-radius: 15px;
+            padding: 25px;
+            margin-bottom: 20px;
+            transition: all 0.3s;
+        }
+        
+        .recipe-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            border-color: #667eea;
+        }
+        
+        .recipe-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+        
+        .recipe-title {
+            color: #333;
+            font-size: 1.3em;
+            font-weight: bold;
+            flex: 1;
+        }
+        
+        .match-badge {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 8px 20px;
+            border-radius: 20px;
+            font-weight: bold;
+            font-size: 1.1em;
+        }
+        
+        .recipe-info {
+            margin: 15px 0;
+        }
+        
+        .info-label {
+            font-weight: bold;
+            color: #555;
+            margin-bottom: 5px;
+        }
+        
+        .ingredient-list {
+            color: #666;
+            line-height: 1.6;
+        }
+        
+        .matched {
+            color: #28a745;
+        }
+        
+        .missing {
+            color: #dc3545;
+        }
+        
+        .recipe-link {
+            display: inline-block;
+            margin-top: 15px;
+            padding: 10px 25px;
+            background: #667eea;
+            color: white;
+            text-decoration: none;
+            border-radius: 8px;
+            transition: background 0.3s;
+        }
+        
+        .recipe-link:hover {
+            background: #764ba2;
+        }
+        
+        .back-link {
+            display: inline-block;
+            margin-top: 30px;
+            color: #667eea;
+            text-decoration: none;
+            font-weight: bold;
+        }
+        
+        .back-link:hover {
+            text-decoration: underline;
+        }
+        
+        .no-results {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🍳 레시피 추천</h1>
+        
+        <div class="search-box">
+            <form method="post" action="/recommend">
+                <label for="ingredients">가지고 있는 재료를 입력하세요:</label>
+                <input type="text" 
+                       id="ingredients" 
+                       name="ingredients" 
+                       placeholder="예: 돼지고기, 김치, 두부, 대파"
+                       value="{{ user_ingredients or '' }}"
+                       required>
+                <p class="hint">💡 재료를 쉼표(,)로 구분해서 입력하세요</p>
+                <button type="submit">🔍 레시피 찾기</button>
+            </form>
+        </div>
+        
+        {% if message %}
+        <div class="message">
+            {{ message }}
+        </div>
+        {% endif %}
+        
+        {% if recipes %}
+        <h2 style="margin: 30px 0 20px 0; color: #333;">
+            찾은 레시피: {{ recipes|length }}개
+        </h2>
+        
+        {% for recipe in recipes %}
+        <div class="recipe-card">
+            <div class="recipe-header">
+                <div class="recipe-title">
+                    {{ recipe.dish_name or recipe.title }}
+                </div>
+                <div class="match-badge">
+                    {{ recipe.match_rate }}% 일치
+                </div>
+            </div>
+            
+            <div class="recipe-info">
+                <div class="info-label">✅ 가진 재료:</div>
+                <div class="ingredient-list matched">
+                    {{ recipe.matched or '없음' }}
+                </div>
+            </div>
+            
+            <div class="recipe-info">
+                <div class="info-label">❌ 필요한 재료:</div>
+                <div class="ingredient-list missing">
+                    {{ recipe.missing or '없음' }}
+                </div>
+            </div>
+            
+            <div class="recipe-info">
+                <div class="info-label">📋 전체 재료:</div>
+                <div class="ingredient-list">
+                    {{ recipe.all_ingredients }}
+                </div>
+            </div>
+            
+            <a href="{{ recipe.url }}" target="_blank" class="recipe-link">
+                🎥 영상 보러가기
+            </a>
+        </div>
+        {% endfor %}
+        {% endif %}
+        
+        <a href="/" class="back-link">← 홈으로 돌아가기</a>
+    </div>
+</body>
+</html>
