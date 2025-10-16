@@ -6,9 +6,10 @@ import time
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify
 from googleapiclient.discovery import build
 import google.generativeai as genai
-from youtube_transcript_api import YouTubeTranscriptApi
+from youtube_transcript_api import YouTubeTranscriptApi, TranscriptsDisabled, NoTranscriptFound, VideoUnavailable
 from dotenv import load_dotenv
 import logging
+import sys
 from threading import Lock
 
 # PostgreSQL 연결
@@ -29,6 +30,12 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
+
+if sys.platform.startswith('win'):
+    for handler in logging.getLogger().handlers:
+        if isinstance(handler, logging.StreamHandler):
+            # stdout/stderr에 쓰는 핸들러의 인코딩을 강제로 utf-8로 설정
+            handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
 
 load_dotenv()
 
@@ -164,17 +171,74 @@ def get_video_info(video_id):
         return None
 
 def get_video_transcript(video_id):
-    """자막 가져오기 (한국어, 영어)"""
+    """자막 가져오기 - 최종 수정 버전"""
+    
+    LANGUAGES_TO_CHECK = ['ko', 'en']
+    
     try:
-        transcript_list = YouTubeTranscriptApi.get_transcript(
-            video_id, 
-            languages=['ko', 'en']
-        )
-        text = ' '.join([t['text'] for t in transcript_list])
-        logger.info(f"자막 가져오기 성공 ({len(text)}자)")
-        return text
+        # 1. YouTubeTranscriptApi 인스턴스 생성
+        ytt_api = YouTubeTranscriptApi() 
+        
+        # 2. 사용 가능한 자막 트랙 목록 가져오기
+        transcript_list = ytt_api.list(video_id)
+        
+        transcript = None
+        
+        # 3. 수동 생성 자막 시도 (우선)
+        try:
+            transcript = transcript_list.find_manually_created_transcript(LANGUAGES_TO_CHECK)
+            logger.info(f"수동 자막 발견: {transcript.language_code}")
+        except NoTranscriptFound:
+            # 4. 자동 생성 자막 시도
+            try:
+                transcript = transcript_list.find_generated_transcript(LANGUAGES_TO_CHECK)
+                logger.info(f"자동 자막 발견: {transcript.language_code}")
+            except NoTranscriptFound:
+                logger.warning(f"자막 없음: {video_id}에 대해 {LANGUAGES_TO_CHECK} 자막을 찾을 수 없습니다.")
+                return None
+        
+        # 5. 자막 내용 추출
+        transcript_data = transcript.fetch()
+        print(f"✅ 자막 데이터 타입: {type(transcript_data)}")
+        if transcript_data:
+            print(f"✅ 첫 번째 항목 타입: {type(transcript_data[0])}")
+            print(f"✅ 첫 번째 항목 내용: {transcript_data[0]}")
+            print(f"✅ 첫 번째 항목 속성: {dir(transcript_data[0])}")
+                
+        # 🔥 핵심 수정: 속성 접근 방식으로 변경
+        # FetchedTranscriptSnippet 객체는 .text 속성을 가지고 있음
+        text_parts = []
+        for snippet in transcript_data:
+            # 속성 접근 방식 사용
+            if hasattr(snippet, 'text'):
+                text_parts.append(snippet.text)
+            # 혹시 딕셔너리인 경우도 대비
+            elif isinstance(snippet, dict):
+                text_parts.append(snippet.get('text', ''))
+        
+        text = ' '.join(text_parts)
+        
+        if text:
+            logger.info(f"자막 추출 성공 ({len(text)}자)")
+            return text
+        else:
+            logger.warning(f"자막 데이터가 비어있음: {video_id}")
+            return None
+        
+    except TranscriptsDisabled:
+        logger.warning(f"자막 비활성화: {video_id}")
+        return None
+    except VideoUnavailable:
+        logger.error(f"비디오 사용 불가: {video_id}")
+        return None
+    except NoTranscriptFound:
+        logger.warning(f"자막 없음: {video_id}")
+        return None
     except Exception as e:
-        logger.warning(f"자막 없음: {e}")
+        logger.error(f"자막 가져오기 실패 (최종 오류): {type(e).__name__} - {e}")
+        # 상세 디버깅 정보
+        import traceback
+        logger.debug(f"상세 에러:\n{traceback.format_exc()}")
         return None
 
 def get_video_comments(video_id, max_comments=8):
@@ -206,7 +270,7 @@ def get_video_comments(video_id, max_comments=8):
 def analyze_with_gemini(data_dict, title):
     """모든 수집 데이터를 Gemini로 종합 분석"""
     try:
-        model = genai.GenerativeModel('gemini-1.5-flash-latest')
+        model = genai.GenerativeModel('gemini-2.5-flash')
         
         # 데이터 조합
         available_data = []
@@ -245,9 +309,23 @@ def analyze_with_gemini(data_dict, title):
         result = re.sub(r'^```json?\s*', '', result)
         result = re.sub(r'\s*```$', '', result)
         
+        # 🚨 핵심 수정 부분 시작
         data = json.loads(result)
+        
+        # 💡 수정 1: 응답이 리스트인 경우 첫 번째 항목을 데이터로 사용
+        # 'list' object has no attribute 'get' 오류 해결
+        if isinstance(data, list):
+            if data:
+                data = data[0] # 리스트의 첫 번째 항목(딕셔너리)을 사용
+            else:
+                # 빈 리스트일 경우
+                logger.error("Gemini가 빈 리스트를 반환했습니다.")
+                return title, "", []
+
+        # 이제 data는 딕셔너리이므로 .get()을 안전하게 사용할 수 있습니다.
         dish_name = data.get('dish_name', title)
         ingredients = data.get('ingredients', '')
+        # 🚨 핵심 수정 부분 끝
         
         if isinstance(ingredients, list):
             ingredients = ','.join(ingredients)
@@ -628,7 +706,7 @@ def recommend_recipe():
             'matched': ', '.join(matched),
             'missing': ', '.join(missing),
             'all_ingredients': ', '.join(recipe_ings),
-            'sources': row.get('data_sources', '없음')
+            'sources': row['data_sources'] if row['data_sources'] is not None else '없음'
         })
     
     recipes.sort(key=lambda x: float(x['match_rate']), reverse=True)
